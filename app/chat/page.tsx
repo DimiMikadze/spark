@@ -7,8 +7,7 @@ export default async function ChatPage() {
   const initialMessages = buildInitialMessages({ returning });
 
   return (
-    <main className="mx-auto flex h-dvh max-w-2xl flex-col p-4">
-      <h1 className="mb-4 text-xl font-semibold">Spark</h1>
+    <main className="flex min-h-dvh items-center justify-center bg-neutral-900 p-4">
       <ChatUI initialMessages={initialMessages} />
     </main>
   );

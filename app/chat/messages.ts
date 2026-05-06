@@ -1,5 +1,5 @@
 import type { UIMessage } from 'ai';
-import { SPARK_GREETING } from '@/prompts';
+import { SPARK_GREETING } from '@/agents/greeter/agent';
 
 // The first greeting is static product copy, not an LLM response. Refreshing
 // the page should always return to this clean starting point.

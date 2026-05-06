@@ -6,14 +6,14 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 # Spark — project rules
 
-Spark is a local-first RAG chatbot. The reusable RAG engine lives in `rag/`; the Next.js app under `app/` is the test harness and (eventually) the public-facing widget host.
+Spark is enumeral's lead-qualification + booking assistant, modeled after the Botpress flow in `botpress-prompts/`. Three explicit agents (Greeter, Qualifier, Booker) each have a small system prompt, share a tool-mocked backend, and hand off to each other via tool calls. A reusable RAG engine in `rag/` provides a `searchKnowledge` tool the agents can call when the user asks about enumeral.
 
-The detailed build plan with phases, file-by-file tasks, and acceptance criteria is in `plan.md`. Read it before doing implementation work.
+The detailed build plan with phases and acceptance criteria is in `plan.md`. Read it before doing implementation work.
 
 ## Stack (locked — do not swap without discussion)
 
 - **App:** Next.js 16 + React 19 (App Router)
-- **LLM + embeddings:** OpenAI via Vercel AI SDK 6 (`@ai-sdk/openai`). Chat: `gpt-5.5`. Embeddings: `text-embedding-3-large` truncated to **1536 dims** (Matryoshka), so they fit pgvector's HNSW limit.
+- **LLM + embeddings:** OpenAI via Vercel AI SDK 6 (`@ai-sdk/openai`). Chat: `gpt-5.4-mini`. Embeddings: `text-embedding-3-large` truncated to **1536 dims** (Matryoshka), so they fit pgvector's HNSW limit.
 - **Streaming:** `streamText` + `useChat` from the AI SDK. Plain text streaming, no `streamUI`.
 - **Database:** Neon Postgres + pgvector. **Driver: `@neondatabase/serverless` only — no Drizzle, no Prisma, no other ORM.** Queries are written as `sql\`...\`` tagged templates. Vector search uses pgvector's `<=>` operator.
 - **Sessions:** UUID `httpOnly` cookie. No auth library, no NextAuth, no Clerk.
@@ -23,18 +23,42 @@ The detailed build plan with phases, file-by-file tasks, and acceptance criteria
 ## Architecture
 
 ```
+agents/                      multi-agent orchestrator — one folder per agent
+  greeter/agent.ts           static greeting; flips state to qualifier; no LLM call
+  qualifier/
+    prompt.md                full system prompt as plain markdown
+    agent.ts                 thin factory: load prompt, attach allowed tools
+  booker/
+    prompt.md
+    agent.ts
+  shared/
+    style-rules.md           terse-tone rules, appended into every LLM prompt
+    prompt.ts                loadPrompt() — reads .md, appends runtime footer
+  orchestrator.ts            per-turn entry: pick agent, run streamText, apply handoff
+  state.ts                   in-memory Map<conversationId, ConversationState>
+
+tools/                       mocked side-effect surface — every tool is a stub
+  knowledge.ts               searchKnowledge — wraps rag/retrieve as a tool
+  lead.ts                    findLead, createLead, updateLead
+  calendar.ts                checkAvailability, createEvent, updateEvent, deleteEvent
+  email.ts                   sendSummaryEmail
+  handoff.ts                 handoffToBooker — sets state.pendingHandoff
+  index.ts                   createToolsForAgent(name, state) — per-agent permissions
+
 rag/                         reusable RAG engine — pure functions, no Next.js imports
-  parse.ts, chunk.ts, embed.ts, retrieve.ts, chat.ts
+  parse.ts, chunk.ts, embed.ts, retrieve.ts
   db.ts                      Neon SQL client (connection only)
   queries.ts                 all DB query helpers — call sites import from here
-  prompts.ts                 system prompts and prompt builders
-  types.ts                   shared types
+  types.ts                   RAG-only types (Format, RetrievedChunk)
+
+types.ts                     app-wide types (SparkAgentName, ConversationState, ...)
 
 app/
-  api/chat/route.ts          POST handler, streams via rag/chat, CORS-enabled
+  api/chat/route.ts          POST handler, streams via agents/orchestrator, CORS-enabled
   api/messages/route.ts      GET prior messages by session
   chat/page.tsx              internal admin/test view
   chat/chat-ui.tsx           shared chat client UI used by /chat and /embed
+  chat/messages.ts           seeds the static greeting on the client
   embed/page.tsx             iframe chat page, renders chat/chat-ui.tsx (embed variant)
   page.tsx, layout.tsx
 
@@ -42,15 +66,21 @@ public/widget.js             embed script for third-party sites
 scripts/                     ingest.ts, reset.ts, db-setup.ts
 migrations/                  *.sql, applied in order by db-setup.ts
 docs/                        gitignored — drop your source documents here
+botpress-prompts/            source-of-truth Botpress prompts; agents/*/prompt.md mirror these
 ```
 
-`rag/` must not import from Next.js (`next/*`, `react`, etc.). It runs from CLI scripts and from route handlers — keep it pure TypeScript so it can be lifted into another project later.
+`rag/` must not import from Next.js, `agents/`, or top-level `types.ts` — keep it pure TypeScript so it can be lifted into another project later.
 
 ## Conventions
 
-- **Provider abstraction.** Model and embedding provider are referenced in exactly two files (`rag/chat.ts`, `rag/embed.ts`). Switching to Anthropic later is a one-line change in each. Don't sprinkle `openai(...)` calls elsewhere.
+- **One agent per folder.** A new agent is `agents/<name>/{prompt.md, agent.ts}`. The prompt is plain markdown so it diffs cleanly and copies straight from `botpress-prompts/`. Don't inline prompts as TypeScript template strings.
+- **Stable system prompts.** Prompts have a constant body and a tiny dynamic footer (date + conversation id) appended by `agents/shared/prompt.ts`. This is what makes OpenAI's automatic prompt cache hit on the prefix.
+- **RAG only via tool.** Agents reach the knowledge base through the `searchKnowledge` tool. Never paste retrieved chunks into the system prompt — it kills prompt caching and pays for retrieval the user didn't ask for.
+- **Agent handoff is a tool call.** No regex over user text, no LLM router. The Qualifier emits `handoffToBooker(reason, email)`; the orchestrator applies it before the next turn.
+- **Mocked tools are dumb.** Every tool's `execute` does `console.log(input)` and returns `{ ok: true, ...input }`. Wiring real services later is a one-file change per tool. Don't grow per-conversation state inside tools.
+- **Provider abstraction.** Model and embedding provider are referenced in exactly two files (`agents/orchestrator.ts`, `rag/embed.ts`). Switching to Anthropic later is a one-line change in each. Don't sprinkle `openai(...)` calls elsewhere.
 - **DB queries live in `rag/queries.ts`** as named, exported helper functions. Don't write inline `sql\`...\`` at call sites — keep all SQL in one file so the schema is easy to grep and refactor. The migration runner in `scripts/db-setup.ts` is the one exception.
-- **Prompts live in `rag/prompts.ts`.** Don't inline system prompts in route handlers or `chat.ts`.
+- **One `types.ts` per layer.** `types.ts` at the repo root holds Spark app types. `rag/types.ts` holds RAG-only types. `rag/` cannot import the root file.
 - **No new dependencies without a clear reason.** Especially avoid: LangChain, LlamaIndex, Drizzle, Prisma, Pinecone client, Supabase client, NextAuth, iron-session.
 - **Route handlers run on the Node runtime,** not Edge — pg-style drivers and parsers want Node.
 - **CORS.** `/api/chat` must accept cross-origin POST + OPTIONS so the widget works from any host.

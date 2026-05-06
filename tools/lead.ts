@@ -1,157 +1,66 @@
+// Mocked lead-database tools.
+//
+// In v1 these are pure stubs: they `console.log` the call so we can trace
+// the agent's behavior in the dev terminal, then return `{ ok: true, ... }`.
+// Wiring real Postgres writes later means editing only this file.
+
 import { tool } from 'ai';
 import { z } from 'zod';
-import {
-  createMockLead,
-  findMockLeadByEmail,
-  recordToolEvent,
-  saveMockLead,
-  seedMockBooking,
-  transitionToAgent,
-} from '../agents/agent-state';
-import type { ToolFactoryContext } from './types';
 
-function cleanEmail(email: string): string {
-  return email.trim().toLowerCase();
+// A deterministic fake calendar event id keyed off the email lets reschedule
+// and cancel flows have something realistic to echo around. Real impl
+// replaces this with the id returned by Google Calendar.
+function fakeCalendarEventId(email: string): string {
+  return `mock_event_${Buffer.from(email).toString('hex').slice(0, 12)}`;
 }
 
-export function createFindLeadByEmailTool(ctx: ToolFactoryContext) {
-  return tool({
-    description:
-      'Mock lookup for an enumeral lead by email. Use before creating, updating, rescheduling, or cancelling.',
-    inputSchema: z.object({
-      email: z.string().email().describe('Lead email address'),
-    }),
-    execute: async ({ email }) => {
-      const normalizedEmail = cleanEmail(email);
-      // For reschedule/cancel, the mock behaves as if an existing booking can
-      // be found by email. New lead qualification still uses real found/missing.
-      const existing =
-        ctx.state.bookingIntent === 'reschedule' || ctx.state.bookingIntent === 'cancel'
-          ? seedMockBooking(normalizedEmail, ctx.conversationId)
-          : findMockLeadByEmail(normalizedEmail);
+export const findLead = tool({
+  description:
+    'Look up an existing enumeral lead by email. Use before creating, ' +
+    'updating, rescheduling, or cancelling.',
+  inputSchema: z.object({
+    email: z.email(),
+  }),
+  execute: async ({ email }) => {
+    console.info('[tool:findLead]', { email });
+    // The mock always claims the lead exists with a matching calendar event,
+    // so reschedule/cancel flows can proceed without real persistence.
+    return {
+      ok: true,
+      found: true,
+      email,
+      calendarEventId: fakeCalendarEventId(email),
+    };
+  },
+});
 
-      if (existing) {
-        ctx.state.lead = { ...ctx.state.lead, ...existing };
-      } else {
-        ctx.state.lead.email = normalizedEmail;
-      }
+export const createLead = tool({
+  description:
+    'Create a qualified enumeral lead. Only the Qualifier agent uses this.',
+  inputSchema: z.object({
+    email: z.email(),
+    businessDescription: z.string(),
+    aiNeed: z.string().optional(),
+  }),
+  execute: async (input) => {
+    console.info('[tool:createLead]', input);
+    return { ok: true, ...input };
+  },
+});
 
-      const output = existing
-        ? { mock: true, found: true, lead: existing }
-        : { mock: true, found: false, email: normalizedEmail };
-
-      recordToolEvent(ctx.state, ctx.agent, 'findLeadByEmail', { email }, output);
-      return output;
-    },
-  });
-}
-
-export function createCreateLeadTool(ctx: ToolFactoryContext) {
-  return tool({
-    description: 'Mock creation of a qualified enumeral lead. Only the Qualifier agent may use this.',
-    inputSchema: z.object({
-      email: z.string().email().describe('Lead email address'),
-      businessDescription: z.string().describe("What the user's company does"),
-      aiNeed: z.string().optional().describe('The AI use case or need, if the user shared one'),
-      conversationId: z
-        .string()
-        .optional()
-        .describe('Conversation id. Use the current conversation id when available.'),
-    }),
-    execute: async ({ email, businessDescription, aiNeed, conversationId }) => {
-      const lead = createMockLead({
-        email: cleanEmail(email),
-        businessDescription,
-        aiNeed,
-        conversationId: conversationId ?? ctx.conversationId,
-      });
-
-      ctx.state.lead = { ...ctx.state.lead, ...lead };
-      ctx.state.bookingIntent = 'new_booking';
-      // A saved qualified lead is the handoff point from Qualifier to Booker.
-      transitionToAgent(ctx.state, 'booker');
-
-      const output = {
-        mock: true,
-        status: 'created',
-        lead,
-      };
-
-      recordToolEvent(
-        ctx.state,
-        ctx.agent,
-        'createLead',
-        { email, businessDescription, aiNeed, conversationId },
-        output,
-      );
-      return output;
-    },
-  });
-}
-
-export function createUpdateLeadTool(ctx: ToolFactoryContext) {
-  return tool({
-    description: 'Mock update for an existing lead. Use for qualified lead updates and booking event ids.',
-    inputSchema: z.object({
-      email: z.string().email().describe('Lead email address'),
-      businessDescription: z.string().optional(),
-      aiNeed: z.string().optional(),
-      conversationId: z.string().optional(),
-      calendarEventId: z
-        .string()
-        .nullable()
-        .optional()
-        .describe('Calendar event id. Pass null to clear it after cancellation.'),
-      qualificationStatus: z.enum(['unknown', 'qualified', 'unqualified']).optional(),
-    }),
-    execute: async ({ email, businessDescription, aiNeed, conversationId, calendarEventId, qualificationStatus }) => {
-      const normalizedEmail = cleanEmail(email);
-      const existing =
-        findMockLeadByEmail(normalizedEmail) ??
-        createMockLead({
-          email: normalizedEmail,
-          conversationId: conversationId ?? ctx.conversationId,
-        });
-
-      const lead = saveMockLead({
-        ...existing,
-        businessDescription: businessDescription ?? existing.businessDescription,
-        aiNeed: aiNeed ?? existing.aiNeed,
-        conversationId: conversationId ?? existing.conversationId ?? ctx.conversationId,
-        calendarEventId: calendarEventId === undefined ? existing.calendarEventId : calendarEventId,
-        qualificationStatus: qualificationStatus ?? existing.qualificationStatus,
-        saved: true,
-      });
-
-      ctx.state.lead = { ...ctx.state.lead, ...lead };
-      if (ctx.agent === 'qualifier' && lead.qualificationStatus === 'qualified') {
-        ctx.state.bookingIntent = 'new_booking';
-        // Updating an existing qualified lead should hand off the same way as
-        // creating one.
-        transitionToAgent(ctx.state, 'booker');
-      }
-
-      const output = {
-        mock: true,
-        status: 'updated',
-        lead,
-      };
-
-      recordToolEvent(
-        ctx.state,
-        ctx.agent,
-        'updateLead',
-        {
-          email,
-          businessDescription,
-          aiNeed,
-          conversationId,
-          calendarEventId,
-          qualificationStatus,
-        },
-        output,
-      );
-      return output;
-    },
-  });
-}
+export const updateLead = tool({
+  description:
+    'Update fields on an existing lead. Used after qualifying to refresh ' +
+    'business info, and after booking to set or clear the calendar event id.',
+  inputSchema: z.object({
+    email: z.email(),
+    businessDescription: z.string().optional(),
+    aiNeed: z.string().optional(),
+    // Pass null to clear after a cancellation.
+    calendarEventId: z.string().nullable().optional(),
+  }),
+  execute: async (input) => {
+    console.info('[tool:updateLead]', input);
+    return { ok: true, ...input };
+  },
+});

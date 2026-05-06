@@ -1,32 +1,23 @@
+// Mocked internal-summary email tool.
+//
+// In production this calls the team's email service. For v1 it just logs
+// the payload so we can inspect what the agent would have sent.
+
 import { tool } from 'ai';
 import { z } from 'zod';
-import { recordToolEvent } from '../agents/agent-state';
-import type { ToolFactoryContext } from './types';
 
-export function createSendSummaryEmailTool(ctx: ToolFactoryContext) {
-  return tool({
-    description: 'Mock sending an internal summary email to enumeral after booking, reschedule, or cancellation.',
-    inputSchema: z.object({
-      eventType: z.enum(['booking', 'reschedule', 'cancellation']),
-      subject: z.string().describe('Email subject'),
-      body: z.string().describe('Concise internal summary email body'),
-      to: z.string().email().default('dimi@enumeral.ai'),
-    }),
-    execute: async ({ eventType, subject, body, to }) => {
-      // No email leaves the app in v1. The returned body is exposed in debug
-      // metadata so we can judge whether the summary is useful.
-      const output = {
-        mock: true,
-        status: 'sent',
-        emailId: `mock_email_${Date.now()}`,
-        to,
-        eventType,
-        subject,
-        body,
-      };
-
-      recordToolEvent(ctx.state, ctx.agent, 'sendSummaryEmail', { eventType, subject, body, to }, output);
-      return output;
-    },
-  });
-}
+export const sendSummaryEmail = tool({
+  description:
+    'Send an internal summary email to enumeral after a booking, ' +
+    'reschedule, or cancellation. Used by the Booker agent only.',
+  inputSchema: z.object({
+    eventType: z.enum(['booking', 'reschedule', 'cancellation']),
+    subject: z.string(),
+    body: z.string(),
+    to: z.email().default('dimi@enumeral.ai'),
+  }),
+  execute: async (input) => {
+    console.info('[tool:sendSummaryEmail]', input);
+    return { ok: true, status: 'sent', emailId: `mock_email_${Date.now()}`, ...input };
+  },
+});

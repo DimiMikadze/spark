@@ -1,8 +1,8 @@
 import { cookies } from 'next/headers';
 import { randomUUID } from 'node:crypto';
 import type { UIMessage } from 'ai';
-import { chat } from '@/rag/chat';
-import { snapshotConversationState } from '@/agents/agent-state';
+import { chat } from '@/agents/orchestrator';
+import { snapshotState } from '@/agents/state';
 
 // We need Node, not Edge: `unpdf` and `mammoth` (used during ingestion) and
 // the way streamText is wired want a Node runtime. Edge would also restrict
@@ -58,7 +58,7 @@ export async function POST(req: Request) {
   const isNewSession = !existing;
 
   const currentDate = currentDateInTbilisi();
-  const { result, retrieved, agentName } = await chat({
+  const { result, agentName } = await chat({
     messages,
     conversationId: sessionId,
     currentDate,
@@ -81,11 +81,7 @@ export async function POST(req: Request) {
           agent: agentName,
           conversationId: sessionId,
           currentDate,
-          state: snapshotConversationState(sessionId),
-          retrieved: retrieved.map((r) => ({
-            source: r.source,
-            score: r.score,
-          })),
+          state: snapshotState(sessionId),
         };
       }
     },

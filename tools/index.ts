@@ -1,37 +1,41 @@
+// Per-agent tool permissions.
+//
+// Tool access is the main guardrail between agents. Qualifier can write
+// leads but cannot touch the calendar; Booker can manage the calendar but
+// cannot create leads. Greeter never reaches the model so it has none.
+
 import type { ToolSet } from 'ai';
-import type { SparkAgentName } from '../agents/types';
-import { createCheckAvailabilityTool, createCreateEventTool, createDeleteEventTool, createUpdateEventTool } from './calendar';
-import { createSendSummaryEmailTool } from './email';
-import { createCreateLeadTool, createFindLeadByEmailTool, createUpdateLeadTool } from './lead';
-import type { ToolFactoryContext } from './types';
+import type { ConversationState, SparkAgentName } from '@/types';
+import { checkAvailability, createEvent, deleteEvent, updateEvent } from './calendar';
+import { sendSummaryEmail } from './email';
+import { createHandoffToBookerTool } from './handoff';
+import { searchKnowledge } from './knowledge';
+import { createLead, findLead, updateLead } from './lead';
 
 export function createToolsForAgent(
   agent: SparkAgentName,
-  ctx: Omit<ToolFactoryContext, 'agent'>,
+  state: ConversationState,
 ): ToolSet | undefined {
-  const toolContext = { ...ctx, agent };
-
-  // Tool permissions are the main guardrail between agents. Qualifier can
-  // create leads, but it cannot touch calendar or email tools.
   if (agent === 'qualifier') {
     return {
-      findLeadByEmail: createFindLeadByEmailTool(toolContext),
-      createLead: createCreateLeadTool(toolContext),
-      updateLead: createUpdateLeadTool(toolContext),
+      searchKnowledge,
+      findLead,
+      createLead,
+      updateLead,
+      handoffToBooker: createHandoffToBookerTool(state),
     };
   }
 
-  // Booker can update existing lead booking fields, but it cannot create a
-  // lead. That keeps lead qualification owned by Qualifier.
   if (agent === 'booker') {
     return {
-      findLeadByEmail: createFindLeadByEmailTool(toolContext),
-      updateLead: createUpdateLeadTool(toolContext),
-      checkAvailability: createCheckAvailabilityTool(toolContext),
-      createEvent: createCreateEventTool(toolContext),
-      updateEvent: createUpdateEventTool(toolContext),
-      deleteEvent: createDeleteEventTool(toolContext),
-      sendSummaryEmail: createSendSummaryEmailTool(toolContext),
+      searchKnowledge,
+      findLead,
+      updateLead,
+      checkAvailability,
+      createEvent,
+      updateEvent,
+      deleteEvent,
+      sendSummaryEmail,
     };
   }
 

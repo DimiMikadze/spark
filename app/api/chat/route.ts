@@ -27,9 +27,15 @@ export async function OPTIONS() {
   return new Response(null, { headers: corsHeaders });
 }
 
+// The widget loads /embed in a cross-site iframe, so the session cookie has
+// to survive a third-party context. That means SameSite=None (Lax/Strict are
+// dropped in cross-site iframes), Secure (required whenever SameSite=None;
+// browsers treat http://localhost as secure so dev still works), and
+// Partitioned for Chrome's CHIPS — without it Chrome drops the cookie under
+// third-party cookie blocking. Without these, every POST from the embed mints
+// a fresh sessionId and conversations never carry across turns.
 function setCookieHeader(sessionId: string): string {
-  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
-  return `${SESSION_COOKIE}=${sessionId}; HttpOnly; SameSite=Lax; Path=/; Max-Age=31536000${secure}`;
+  return `${SESSION_COOKIE}=${sessionId}; HttpOnly; SameSite=None; Secure; Partitioned; Path=/; Max-Age=31536000`;
 }
 
 function currentDateInTbilisi(): string {

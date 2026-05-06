@@ -4,14 +4,7 @@
 // When a handoff fires during a turn, the target agent runs immediately in
 // the same HTTP response so the user sees one continuous reply.
 
-import {
-  streamText,
-  convertToModelMessages,
-  createUIMessageStream,
-  stepCountIs,
-  type ModelMessage,
-  type UIMessage,
-} from 'ai';
+import { streamText, convertToModelMessages, createUIMessageStream, stepCountIs, type UIMessage } from 'ai';
 import { openai, type OpenAILanguageModelResponsesOptions } from '@ai-sdk/openai';
 import type { ConversationState, SparkAgentName, SparkAgentRuntime } from '@/types';
 import { createBookerAgent } from '@/agents/booker/agent';
@@ -83,7 +76,7 @@ export async function chat({
         const agent = AGENTS[activeAgent]({ state, conversationId, currentDate });
 
         const r = streamText({
-          model: openai('gpt-5.4-mini'),
+          model: openai('gpt-5.4'),
           system: agent.system,
           messages: modelMessages,
           tools: agent.tools,

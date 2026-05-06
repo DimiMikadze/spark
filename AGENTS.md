@@ -13,7 +13,7 @@ Spark is enumeral's lead-qualification + booking assistant. Three explicit agent
 ## Stack (locked — do not swap without discussion)
 
 - **App:** Next.js 16 + React 19 (App Router)
-- **LLM + embeddings:** OpenAI via Vercel AI SDK 6 (`@ai-sdk/openai`). Chat: `gpt-5.4-mini`. Embeddings: `text-embedding-3-large` truncated to **1536 dims** (Matryoshka), so they fit pgvector's HNSW limit.
+- **LLM + embeddings:** OpenAI via Vercel AI SDK 6 (`@ai-sdk/openai`). Chat: `gpt-5.4`. Embeddings: `text-embedding-3-large` truncated to **1536 dims** (Matryoshka), so they fit pgvector's HNSW limit.
 - **Streaming:** `streamText` + `useChat` from the AI SDK. Plain text streaming, no `streamUI`.
 - **Database:** Neon Postgres + pgvector. **Driver: `@neondatabase/serverless` only — no Drizzle, no Prisma, no other ORM.** Queries are written as `sql\`...\``tagged templates. Vector search uses pgvector's`<=>` operator.
 - **Sessions:** UUID `httpOnly` cookie. No auth library, no NextAuth, no Clerk.
@@ -74,6 +74,7 @@ docs/                        gitignored — drop your source documents here
 
 - **One agent per folder.** A new agent is `agents/<name>/{prompt.md, agent.ts}`. The prompt is plain markdown so it diffs cleanly and copies straight from `botpress-prompts/`. Don't inline prompts as TypeScript template strings.
 - **Stable system prompts.** Prompts have a constant body and a tiny dynamic footer (date + conversation id) appended by `agents/shared/prompt.ts`. This is what makes OpenAI's automatic prompt cache hit on the prefix.
+- **Bounded conversation history.** Every HTTP turn re-sends the full client-side history, so without bounds input cost grows quadratically over a conversation and the input eventually exceeds the model's context window. `agents/orchestrator.ts` applies two limits to `modelMessages` before every `streamText` call: a sliding window of the last ~20 user turns (`trimHistory`, cuts only at user-message boundaries to avoid orphaning tool-call/result pairs) and per-message compaction of tool-result payloads above ~2KB in prior turns (`compactToolResults`, replaces fat outputs with a stub). Both run inside the agent loop, so multi-agent handoffs and prior-turn history flow through the same pipeline. Current-turn tool results are never compacted — they're still in the in-flight reasoning chain.
 - **RAG only via tool.** Agents reach the knowledge base through the `searchKnowledge` tool. Never paste retrieved chunks into the system prompt — it kills prompt caching and pays for retrieval the user didn't ask for.
 - **Agent handoff is a tool call.** No regex over user text, no LLM router. The Qualifier emits `handoffToBooker(reason, email)`; the orchestrator applies it before the next turn.
 - **Mocked tools are dumb.** Every tool's `execute` does `console.log(input)` and returns `{ ok: true, ...input }`. Wiring real services later is a one-file change per tool. Don't grow per-conversation state inside tools.

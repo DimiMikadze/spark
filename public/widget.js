@@ -5,7 +5,7 @@
 
   const button = document.createElement('button');
   button.type = 'button';
-  button.textContent = 'Chat';
+  button.textContent = 'Spark';
   Object.assign(button.style, {
     position: 'fixed',
     right: '20px',
@@ -47,7 +47,7 @@
   let open = false;
   function sync() {
     frame.style.display = open ? 'block' : 'none';
-    button.textContent = open ? 'Close' : 'Chat';
+    button.textContent = open ? 'Close' : 'Spark';
   }
 
   button.addEventListener('click', () => {

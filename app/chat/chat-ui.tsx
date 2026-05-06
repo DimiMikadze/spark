@@ -6,6 +6,39 @@ import type { UIMessage } from 'ai';
 
 type ChatUIVariant = 'full' | 'embed';
 
+function safeJson(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function DebugBlock({ label, value }: { label: string; value: unknown }) {
+  return (
+    <details className="rounded border border-gray-200 bg-gray-50 px-2 py-1 text-xs text-gray-700">
+      <summary className="cursor-pointer font-medium">{label}</summary>
+      <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words">
+        {safeJson(value)}
+      </pre>
+    </details>
+  );
+}
+
+function shouldRenderDebugPart(part: UIMessage['parts'][number]): boolean {
+  if (part.type === 'step-start') return false;
+  if (part.type === 'reasoning') return false;
+  return part.type.startsWith('tool-') || part.type === 'dynamic-tool';
+}
+
+function hasVisibleText(message: UIMessage): boolean {
+  return message.parts.some((part) => part.type === 'text' && part.text.trim());
+}
+
+function hasVisibleDebug(message: UIMessage): boolean {
+  return message.parts.some(shouldRenderDebugPart);
+}
+
 export function ChatUI({
   initialMessages,
   variant = 'full',
@@ -47,7 +80,7 @@ export function ChatUI({
   const buttonClass = isEmbed
     ? 'rounded bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50'
     : 'rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50';
-  const placeholder = isEmbed ? 'Ask about your docs...' : 'Ask about your documents...';
+  const placeholder = isEmbed ? 'Reply to Spark...' : 'Reply to Spark...';
 
   return (
     <div className={isEmbed ? 'flex h-dvh flex-col bg-white' : 'flex h-full flex-col'}>
@@ -55,19 +88,34 @@ export function ChatUI({
       <div ref={scrollRef} className={listClass}>
         {messages.length === 0 && (
           <p className={emptyClass}>
-            Ask a question about the documents you ingested.
+            Spark can answer questions about enumeral and help book an intro call.
           </p>
         )}
-        {messages.map((m) => (
-          <div key={m.id} className="space-y-1">
-            <div className={roleClass}>{m.role}</div>
-            <div className="whitespace-pre-wrap text-sm">
-              {m.parts.map((part, i) =>
-                part.type === 'text' ? <span key={i}>{part.text}</span> : null,
-              )}
+        {messages.map((m) => {
+          const hasText = hasVisibleText(m);
+          const hasDebug = !isEmbed && hasVisibleDebug(m);
+          const showMetadata = !isEmbed && m.metadata && (hasText || hasDebug);
+
+          if (!hasText && !hasDebug && !showMetadata) return null;
+
+          return (
+            <div key={m.id} className="space-y-1">
+              <div className={roleClass}>{m.role}</div>
+              <div className="whitespace-pre-wrap text-sm">
+                {m.parts.map((part, i) => {
+                  if (part.type === 'text') return <span key={i}>{part.text}</span>;
+                  if (isEmbed) return null;
+                  if (!shouldRenderDebugPart(part)) return null;
+                  return <DebugBlock key={i} label={part.type} value={part} />;
+                })}
+              </div>
+              {showMetadata ? <DebugBlock label="message metadata" value={m.metadata} /> : null}
             </div>
-          </div>
-        ))}
+          );
+        })}
+        {isStreaming && messages.every((m) => m.role !== 'assistant' || hasVisibleText(m)) ? (
+          <p className="text-sm text-gray-500">Spark is typing...</p>
+        ) : null}
       </div>
 
       <form onSubmit={onSubmit} className={formClass}>
@@ -83,7 +131,7 @@ export function ChatUI({
           disabled={isStreaming || !input.trim()}
           className={buttonClass}
         >
-          {isStreaming ? '…' : 'Send'}
+          {isStreaming ? '...' : 'Send'}
         </button>
       </form>
     </div>

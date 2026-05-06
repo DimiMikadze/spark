@@ -2,7 +2,7 @@ import { cookies } from 'next/headers';
 import { randomUUID } from 'node:crypto';
 import type { UIMessage } from 'ai';
 import { chat } from '@/rag/chat';
-import { createChatSession, saveMessage } from '@/rag/queries';
+import { snapshotConversationState } from '@/agents/agent-state';
 
 // We need Node, not Edge: `unpdf` and `mammoth` (used during ingestion) and
 // the way streamText is wired want a Node runtime. Edge would also restrict
@@ -29,41 +29,40 @@ export async function OPTIONS() {
   return new Response(null, { headers: corsHeaders });
 }
 
-function extractText(message: UIMessage): string {
-  return message.parts
-    .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
-    .map((p) => p.text)
-    .join('\n');
-}
-
 function setCookieHeader(sessionId: string): string {
   const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
   return `${SESSION_COOKIE}=${sessionId}; HttpOnly; SameSite=Lax; Path=/; Max-Age=31536000${secure}`;
 }
 
+function currentDateInTbilisi(): string {
+  const parts = new Intl.DateTimeFormat('en', {
+    timeZone: 'Asia/Tbilisi',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const year = parts.find((p) => p.type === 'year')?.value;
+  const month = parts.find((p) => p.type === 'month')?.value;
+  const day = parts.find((p) => p.type === 'day')?.value;
+  return `${year}-${month}-${day}`;
+}
+
 export async function POST(req: Request) {
   const { messages }: { messages: UIMessage[] } = await req.json();
 
-  // Sessions: a UUID kept in an httpOnly cookie. No auth, no DB lookup —
-  // first POST creates a row, every subsequent POST reuses the cookie value.
+  // Runtime-only conversation id. We do not persist chat messages in the DB;
+  // a page refresh starts from Spark's static greeting again.
   const cookieStore = await cookies();
   const existing = cookieStore.get(SESSION_COOKIE)?.value;
   const sessionId = existing ?? randomUUID();
   const isNewSession = !existing;
 
-  if (isNewSession) {
-    await createChatSession(sessionId);
-  }
-
-  // Persist the new user message immediately, before the LLM call. If the
-  // LLM call fails, the user can still see their question in their history.
-  const lastUser = [...messages].reverse().find((m) => m.role === 'user');
-  if (lastUser) {
-    const text = extractText(lastUser);
-    if (text) await saveMessage(sessionId, 'user', text);
-  }
-
-  const { result } = await chat(messages);
+  const currentDate = currentDateInTbilisi();
+  const { result, retrieved, agentName } = await chat({
+    messages,
+    conversationId: sessionId,
+    currentDate,
+  });
 
   // We set the cookie via `Set-Cookie` header instead of `cookies().set(...)`
   // because `toUIMessageStreamResponse` returns a streaming Response — by the
@@ -72,14 +71,23 @@ export async function POST(req: Request) {
   const responseHeaders: Record<string, string> = { ...corsHeaders };
   if (isNewSession) responseHeaders['Set-Cookie'] = setCookieHeader(sessionId);
 
-  // `onFinish` runs once the stream completes — that's where the assistant's
-  // full text is available. We persist it then so a page reload shows the
-  // completed turn (the streaming-only state lives in React's useChat).
   return result.toUIMessageStreamResponse({
     headers: responseHeaders,
-    onFinish: async ({ responseMessage }) => {
-      const text = extractText(responseMessage);
-      if (text) await saveMessage(sessionId, 'assistant', text);
+    originalMessages: messages,
+    sendReasoning: false,
+    messageMetadata: ({ part }) => {
+      if (part.type === 'finish') {
+        return {
+          agent: agentName,
+          conversationId: sessionId,
+          currentDate,
+          state: snapshotConversationState(sessionId),
+          retrieved: retrieved.map((r) => ({
+            source: r.source,
+            score: r.score,
+          })),
+        };
+      }
     },
   });
 }

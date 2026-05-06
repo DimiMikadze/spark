@@ -108,7 +108,7 @@ export async function chat({
       console.info('[turn:end]', {
         agent: agent.name,
         finishReason,
-        usage,
+        tokens: `in ${usage.inputTokens} (cached ${usage.cachedInputTokens ?? 0}) / out ${usage.outputTokens}`,
         handoff: pending ? `${agent.name} → ${pending.target} (${pending.reason})` : null,
       });
     },

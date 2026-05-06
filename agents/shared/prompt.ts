@@ -3,7 +3,6 @@
 //
 // Why a `.md` file per agent: the prompt is the agent's product spec, not
 // code. Keeping it as plain markdown makes diffs readable and lets us copy
-// chunks straight from `botpress-prompts/` without escaping template strings.
 //
 // Why a stable prefix and a tiny dynamic footer: OpenAI's automatic prompt
 // cache keys on the longest unchanged prefix sent in a request. Putting the
@@ -17,10 +16,7 @@ const AGENTS_DIR = join(process.cwd(), 'agents');
 
 // Read at module init: the file rarely changes during a server's lifetime,
 // and we'd rather take the I/O hit once at boot than on every chat turn.
-const STYLE_RULES = readFileSync(
-  join(AGENTS_DIR, 'shared', 'style-rules.md'),
-  'utf8',
-);
+const STYLE_RULES = readFileSync(join(AGENTS_DIR, 'shared', 'style-rules.md'), 'utf8');
 
 function readAgentPrompt(agentName: 'qualifier' | 'booker'): string {
   // Re-read on each call so editing a prompt during `pnpm dev` takes effect

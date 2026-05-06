@@ -1,21 +1,21 @@
 <!-- BEGIN:nextjs-agent-rules -->
+
 # This is NOT the Next.js you know
 
 This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
+
 <!-- END:nextjs-agent-rules -->
 
 # Spark — project rules
 
-Spark is enumeral's lead-qualification + booking assistant, modeled after the Botpress flow in `botpress-prompts/`. Three explicit agents (Greeter, Qualifier, Booker) each have a small system prompt, share a tool-mocked backend, and hand off to each other via tool calls. A reusable RAG engine in `rag/` provides a `searchKnowledge` tool the agents can call when the user asks about enumeral.
-
-The detailed build plan with phases and acceptance criteria is in `plan.md`. Read it before doing implementation work.
+Spark is enumeral's lead-qualification + booking assistant. Three explicit agents (Greeter, Qualifier, Booker) each have a small system prompt, share a tool-mocked backend, and hand off to each other via tool calls. A reusable RAG engine in `rag/` provides a `searchKnowledge` tool the agents can call when the user asks about enumeral.
 
 ## Stack (locked — do not swap without discussion)
 
 - **App:** Next.js 16 + React 19 (App Router)
 - **LLM + embeddings:** OpenAI via Vercel AI SDK 6 (`@ai-sdk/openai`). Chat: `gpt-5.4-mini`. Embeddings: `text-embedding-3-large` truncated to **1536 dims** (Matryoshka), so they fit pgvector's HNSW limit.
 - **Streaming:** `streamText` + `useChat` from the AI SDK. Plain text streaming, no `streamUI`.
-- **Database:** Neon Postgres + pgvector. **Driver: `@neondatabase/serverless` only — no Drizzle, no Prisma, no other ORM.** Queries are written as `sql\`...\`` tagged templates. Vector search uses pgvector's `<=>` operator.
+- **Database:** Neon Postgres + pgvector. **Driver: `@neondatabase/serverless` only — no Drizzle, no Prisma, no other ORM.** Queries are written as `sql\`...\``tagged templates. Vector search uses pgvector's`<=>` operator.
 - **Sessions:** UUID `httpOnly` cookie. No auth library, no NextAuth, no Clerk.
 - **File parsers:** `unpdf` (PDF), `mammoth` (.docx), `fs.readFile` (.md / .txt). Pure JS, no native deps.
 - **CLI runner:** `tsx`.
@@ -66,7 +66,6 @@ public/widget.js             embed script for third-party sites
 scripts/                     ingest.ts, reset.ts, db-setup.ts
 migrations/                  *.sql, applied in order by db-setup.ts
 docs/                        gitignored — drop your source documents here
-botpress-prompts/            source-of-truth Botpress prompts; agents/*/prompt.md mirror these
 ```
 
 `rag/` must not import from Next.js, `agents/`, or top-level `types.ts` — keep it pure TypeScript so it can be lifted into another project later.
@@ -79,7 +78,7 @@ botpress-prompts/            source-of-truth Botpress prompts; agents/*/prompt.m
 - **Agent handoff is a tool call.** No regex over user text, no LLM router. The Qualifier emits `handoffToBooker(reason, email)`; the orchestrator applies it before the next turn.
 - **Mocked tools are dumb.** Every tool's `execute` does `console.log(input)` and returns `{ ok: true, ...input }`. Wiring real services later is a one-file change per tool. Don't grow per-conversation state inside tools.
 - **Provider abstraction.** Model and embedding provider are referenced in exactly two files (`agents/orchestrator.ts`, `rag/embed.ts`). Switching to Anthropic later is a one-line change in each. Don't sprinkle `openai(...)` calls elsewhere.
-- **DB queries live in `rag/queries.ts`** as named, exported helper functions. Don't write inline `sql\`...\`` at call sites — keep all SQL in one file so the schema is easy to grep and refactor. The migration runner in `scripts/db-setup.ts` is the one exception.
+- **DB queries live in `rag/queries.ts`** as named, exported helper functions. Don't write inline `sql\`...\``at call sites — keep all SQL in one file so the schema is easy to grep and refactor. The migration runner in`scripts/db-setup.ts` is the one exception.
 - **One `types.ts` per layer.** `types.ts` at the repo root holds Spark app types. `rag/types.ts` holds RAG-only types. `rag/` cannot import the root file.
 - **No new dependencies without a clear reason.** Especially avoid: LangChain, LlamaIndex, Drizzle, Prisma, Pinecone client, Supabase client, NextAuth, iron-session.
 - **Route handlers run on the Node runtime,** not Edge — pg-style drivers and parsers want Node.

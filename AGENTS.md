@@ -90,6 +90,7 @@ docs/                        gitignored — drop your source documents here
 - `pnpm ingest` — walks `docs/`, ingests new files (idempotent by content hash)
 - `pnpm db:setup` — applies any new SQL files in `migrations/` (idempotent)
 - `pnpm db:reset` — truncates `documents` and `chunks` (dev only)
+- `pnpm db:wipe` — truncates `documents`, `chunks`, `chat_sessions`, `messages` (full blank-slate reset; keeps schema + `_migrations`)
 - `pnpm dev` — Next.js dev server
 
 ## Future upgrades (not v1 — wire when needed, do not pre-build)

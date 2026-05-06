@@ -52,6 +52,12 @@ export async function truncateDocumentsAndChunks(): Promise<void> {
   await sql`TRUNCATE documents, chunks RESTART IDENTITY CASCADE`;
 }
 
+// Full wipe of app data. `_migrations` is intentionally preserved so the
+// schema stays in sync — re-running `pnpm db:setup` after this is a no-op.
+export async function truncateAll(): Promise<void> {
+  await sql`TRUNCATE documents, chunks, chat_sessions, messages RESTART IDENTITY CASCADE`;
+}
+
 export async function searchChunks(
   queryEmbedding: number[],
   k: number,
@@ -78,6 +84,13 @@ export type MessageRow = {
   role: 'user' | 'assistant';
   content: string;
 };
+
+export async function sessionHasMessages(sessionId: string): Promise<boolean> {
+  const rows = (await sql`
+    SELECT 1 FROM messages WHERE session_id = ${sessionId} LIMIT 1
+  `) as { '?column?': number }[];
+  return rows.length > 0;
+}
 
 export async function getMessagesBySession(sessionId: string): Promise<MessageRow[]> {
   return (await sql`

@@ -1,14 +1,17 @@
 import { cookies } from 'next/headers';
+import { sessionHasMessages } from '@/rag/queries';
 
 // Cookie name is shared between the API route that sets it (after the first
 // POST to /api/chat) and the server-rendered chat pages that read it to
 // decide which greeting to show. Keep one source of truth so they don't drift.
 export const SESSION_COOKIE = 'spark_session';
 
-// True when the visitor has talked to Spark at least once before. The cookie
-// is only set on a successful POST round-trip, so its presence is a reliable
-// proxy for "we've seen this browser before" — not just "they loaded the page".
+// We also verify the session has persisted messages — not just that the cookie
+// exists — so a dev `pnpm db:wipe` (or any DB reset) doesn't leave the browser
+// stuck on the "returning visitor" greeting with no actual history behind it.
 export async function hasReturningSession(): Promise<boolean> {
   const store = await cookies();
-  return store.has(SESSION_COOKIE);
+  const sessionId = store.get(SESSION_COOKIE)?.value;
+  if (!sessionId) return false;
+  return sessionHasMessages(sessionId);
 }

@@ -40,6 +40,7 @@ export function chunk(text: string): Chunk[] {
       });
     }
 
+    if (end >= normalized.length) break;
     const next = end - OVERLAP;
     pos = next > pos ? next : end;
   }

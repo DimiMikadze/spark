@@ -16,10 +16,15 @@ function fakeCalendarEventId(email: string): string {
 
 export const findLead = tool({
   description:
-    'Look up an existing enumeral lead by email. Use before creating, ' +
-    'updating, rescheduling, or cancelling.',
+    'Look up an existing enumeral lead by email to retrieve their stored ' +
+    'calendarEventId. Only call this when the user wants to RESCHEDULE or ' +
+    'CANCEL an existing booking. Do not call this when creating a new ' +
+    'booking, qualifying a new lead, or as a duplicate check before saving.',
   inputSchema: z.object({
-    email: z.email(),
+    email: z.email().describe(
+      'The user\'s email address as they typed it in the conversation. ' +
+        'Never invent, guess, or derive an email from phrases like "book me a meeting".',
+    ),
   }),
   execute: async ({ email }) => {
     console.info('[tool:findLead]', { email });
@@ -36,9 +41,14 @@ export const findLead = tool({
 
 export const createLead = tool({
   description:
-    'Create a qualified enumeral lead. Only the Qualifier agent uses this.',
+    'Create a qualified enumeral lead. Only the Qualifier agent uses this. ' +
+    'Call directly once you have the user\'s email and business description — ' +
+    'do not call findLead first.',
   inputSchema: z.object({
-    email: z.email(),
+    email: z.email().describe(
+      'The user\'s email address as they typed it in the conversation. ' +
+        'Never invent, guess, or derive an email.',
+    ),
     businessDescription: z.string(),
     aiNeed: z.string().optional(),
   }),

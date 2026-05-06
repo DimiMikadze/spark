@@ -1,24 +1,44 @@
 // Per-turn orchestration.
 //
 // Picks the active agent, runs it, and lets handoff happen via tool calls.
-// The route handler stays thin: it converts the streamed result into an
-// HTTP response and tags metadata. Product workflow lives here.
+// When a handoff fires during a turn, the target agent runs immediately in
+// the same HTTP response so the user sees one continuous reply.
 
 import {
   streamText,
   convertToModelMessages,
+  createUIMessageStream,
   stepCountIs,
+  type ModelMessage,
   type UIMessage,
 } from 'ai';
 import { openai, type OpenAILanguageModelResponsesOptions } from '@ai-sdk/openai';
-import type { SparkAgentName, SparkAgentRuntime } from '@/types';
+import type { ConversationState, SparkAgentName, SparkAgentRuntime } from '@/types';
 import { createBookerAgent } from '@/agents/booker/agent';
 import { createQualifierAgent } from '@/agents/qualifier/agent';
 import { runGreeter } from '@/agents/greeter/agent';
-import { applyPendingHandoff, getOrCreateState } from '@/agents/state';
+import { applyPendingHandoff, getOrCreateState, snapshotState } from '@/agents/state';
 
-// Pull just the latest user text out of the message history so the turn:start
-// log shows what triggered this turn without dumping the whole transcript.
+// Registry of model-driven agents. Adding a new agent is one line here plus
+// the matching folder in `agents/`. Greeter is excluded because it never
+// reaches the model.
+type AgentContext = {
+  state: ConversationState;
+  conversationId: string;
+  currentDate: string;
+};
+const AGENTS: Record<Exclude<SparkAgentName, 'greeter'>, (ctx: AgentContext) => SparkAgentRuntime> = {
+  qualifier: createQualifierAgent,
+  booker: createBookerAgent,
+};
+
+const PROVIDER_OPTIONS = {
+  openai: {
+    reasoningEffort: 'none',
+    textVerbosity: 'low',
+  } satisfies OpenAILanguageModelResponsesOptions,
+};
+
 function lastUserText(messages: UIMessage[]): string {
   const m = [...messages].reverse().find((x) => x.role === 'user');
   if (!m) return '';
@@ -26,28 +46,6 @@ function lastUserText(messages: UIMessage[]): string {
     .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
     .map((p) => p.text)
     .join('\n');
-}
-
-function buildAgent(args: {
-  agentName: SparkAgentName;
-  conversationId: string;
-  currentDate: string;
-  state: ReturnType<typeof getOrCreateState>;
-}): SparkAgentRuntime {
-  if (args.agentName === 'booker') {
-    return createBookerAgent({
-      state: args.state,
-      conversationId: args.conversationId,
-      currentDate: args.currentDate,
-    });
-  }
-  // Greeter never reaches this path: the orchestrator transitions out of it
-  // before calling the model. Default to Qualifier for everything else.
-  return createQualifierAgent({
-    state: args.state,
-    conversationId: args.conversationId,
-    currentDate: args.currentDate,
-  });
 }
 
 export async function chat({
@@ -68,54 +66,74 @@ export async function chat({
   });
 
   // Greeter is a no-op transition: the static greeting is already on the
-  // client, so we just flip the active agent and let Qualifier handle this
-  // user message in the same turn. Zero LLM cost for this step.
-  if (state.activeAgent === 'greeter') {
-    runGreeter(state);
-  }
+  // client, so we just flip the active agent and let the next agent handle
+  // this user message in the same turn.
+  if (state.activeAgent === 'greeter') runGreeter(state);
 
-  const agent = buildAgent({
-    agentName: state.activeAgent,
-    conversationId,
-    currentDate,
-    state,
+  const stream = createUIMessageStream({
+    originalMessages: messages,
+    execute: async ({ writer }) => {
+      let modelMessages = await convertToModelMessages(messages);
+
+      // Run the active agent. If it records a handoff, apply it and run the
+      // next agent in the same HTTP response. Loop so future multi-step
+      // handoffs (e.g. agent A → B → C) just work.
+      while (true) {
+        const activeAgent = state.activeAgent as keyof typeof AGENTS;
+        const agent = AGENTS[activeAgent]({ state, conversationId, currentDate });
+
+        const r = streamText({
+          model: openai('gpt-5.4-mini'),
+          system: agent.system,
+          messages: modelMessages,
+          tools: agent.tools,
+          stopWhen: stepCountIs(8),
+          maxOutputTokens: 600,
+          providerOptions: PROVIDER_OPTIONS,
+          onFinish: ({ finishReason, usage }) => {
+            const pending = state.pendingHandoff;
+            console.info('[turn:end]', {
+              agent: agent.name,
+              finishReason,
+              tokens: `in ${usage.inputTokens} (cached ${usage.cachedInputTokens ?? 0}) / out ${usage.outputTokens}`,
+              handoff: pending ? `${agent.name} → ${pending.target} (${pending.reason})` : null,
+            });
+          },
+          onError: ({ error }) => console.error('[turn:error]', error),
+        });
+
+        writer.merge(
+          r.toUIMessageStream({
+            messageMetadata: ({ part }) =>
+              part.type === 'finish'
+                ? {
+                    agent: agent.name,
+                    conversationId,
+                    currentDate,
+                    state: snapshotState(conversationId),
+                  }
+                : undefined,
+          }),
+        );
+
+        // Drain so onFinish runs and any pending handoff is recorded before
+        // we decide whether to chain the next agent.
+        await r.consumeStream();
+
+        if (!state.pendingHandoff) return;
+
+        // Carry the previous agent's tool calls into the next agent's
+        // message history so it sees what just happened.
+        const response = await r.response;
+        modelMessages = [...modelMessages, ...response.messages];
+        applyPendingHandoff(state);
+      }
+    },
+    onError: (error) => {
+      console.error('[stream:error]', error);
+      return 'An error occurred.';
+    },
   });
 
-  // The agent's prompt is stable across turns — only the runtime footer
-  // (date, conversation id) changes — so OpenAI's automatic prompt cache
-  // hits on the prefix once we're past the first turn.
-  //
-  // `stopWhen: stepCountIs(8)` lets the model call a few tools and still
-  // emit a final user-facing message in one turn.
-  const result = streamText({
-    model: openai('gpt-5.4-mini'),
-    system: agent.system,
-    messages: await convertToModelMessages(messages),
-    tools: agent.tools,
-    stopWhen: stepCountIs(8),
-    maxOutputTokens: 600,
-    providerOptions: {
-      openai: {
-        reasoningEffort: 'none',
-        textVerbosity: 'low',
-      } satisfies OpenAILanguageModelResponsesOptions,
-    },
-    // Tool calls record handoff intent into `state` synchronously. Apply it
-    // here so the next user turn routes to the new active agent.
-    onFinish: ({ finishReason, usage }) => {
-      const pending = state.pendingHandoff;
-      applyPendingHandoff(state);
-      console.info('[turn:end]', {
-        agent: agent.name,
-        finishReason,
-        tokens: `in ${usage.inputTokens} (cached ${usage.cachedInputTokens ?? 0}) / out ${usage.outputTokens}`,
-        handoff: pending ? `${agent.name} → ${pending.target} (${pending.reason})` : null,
-      });
-    },
-    onError: ({ error }) => {
-      console.error('[turn:error]', error);
-    },
-  });
-
-  return { result, agentName: agent.name, state };
+  return { stream, state };
 }

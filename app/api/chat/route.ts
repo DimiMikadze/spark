@@ -1,8 +1,7 @@
 import { cookies } from 'next/headers';
 import { randomUUID } from 'node:crypto';
-import type { UIMessage } from 'ai';
+import { createUIMessageStreamResponse, type UIMessage } from 'ai';
 import { chat } from '@/agents/orchestrator';
-import { snapshotState } from '@/agents/state';
 import { SESSION_COOKIE } from '@/app/session';
 
 // We need Node, not Edge: `unpdf` and `mammoth` (used during ingestion) and
@@ -57,32 +56,20 @@ export async function POST(req: Request) {
   const isNewSession = !existing;
 
   const currentDate = currentDateInTbilisi();
-  const { result, agentName } = await chat({
+  const { stream } = await chat({
     messages,
     conversationId: sessionId,
     currentDate,
   });
 
   // We set the cookie via `Set-Cookie` header instead of `cookies().set(...)`
-  // because `toUIMessageStreamResponse` returns a streaming Response — by the
-  // time it's constructed, Next.js has already flushed headers, so a later
+  // because the streaming Response flushes headers immediately — a later
   // `cookies().set()` would have no effect.
   const responseHeaders: Record<string, string> = { ...corsHeaders };
   if (isNewSession) responseHeaders['Set-Cookie'] = setCookieHeader(sessionId);
 
-  return result.toUIMessageStreamResponse({
+  return createUIMessageStreamResponse({
+    stream,
     headers: responseHeaders,
-    originalMessages: messages,
-    sendReasoning: false,
-    messageMetadata: ({ part }) => {
-      if (part.type === 'finish') {
-        return {
-          agent: agentName,
-          conversationId: sessionId,
-          currentDate,
-          state: snapshotState(sessionId),
-        };
-      }
-    },
   });
 }

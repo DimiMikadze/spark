@@ -6,12 +6,22 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "ingest": "tsx --env-file=.env.local scripts/ingest.ts",
+    "db:setup": "tsx --env-file=.env.local scripts/db-setup.ts",
+    "db:reset": "tsx --env-file=.env.local scripts/reset.ts"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^3.0.61",
+    "@ai-sdk/react": "^3.0.177",
+    "@neondatabase/serverless": "^1.1.0",
+    "ai": "^6.0.175",
+    "mammoth": "^1.12.0",
     "next": "16.2.4",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "unpdf": "^1.6.2",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -21,6 +31,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.4",
     "tailwindcss": "^4",
+    "tsx": "^4.21.0",
     "typescript": "^5"
   }
 }

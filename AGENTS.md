@@ -6,7 +6,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 # Spark — project rules
 
-Spark is a local-first RAG chatbot. The reusable RAG engine lives in `spark/`; the Next.js app under `app/` is the test harness and (eventually) the public-facing widget host.
+Spark is a local-first RAG chatbot. The reusable RAG engine lives in `rag/`; the Next.js app under `app/` is the test harness and (eventually) the public-facing widget host.
 
 The detailed build plan with phases, file-by-file tasks, and acceptance criteria is in `plan.md`. Read it before doing implementation work.
 
@@ -23,7 +23,7 @@ The detailed build plan with phases, file-by-file tasks, and acceptance criteria
 ## Architecture
 
 ```
-spark/                       reusable RAG engine — pure functions, no Next.js imports
+rag/                         reusable RAG engine — pure functions, no Next.js imports
   parse.ts, chunk.ts, embed.ts, retrieve.ts, chat.ts
   db.ts                      Neon SQL client (connection only)
   queries.ts                 all DB query helpers — call sites import from here
@@ -31,10 +31,11 @@ spark/                       reusable RAG engine — pure functions, no Next.js 
   types.ts                   shared types
 
 app/
-  api/chat/route.ts          POST handler, streams via spark/chat, CORS-enabled
+  api/chat/route.ts          POST handler, streams via rag/chat, CORS-enabled
   api/messages/route.ts      GET prior messages by session
   chat/page.tsx              internal admin/test view
-  embed/page.tsx             chat UI rendered inside the widget iframe
+  chat/chat-ui.tsx           shared chat client UI used by /chat and /embed
+  embed/page.tsx             iframe chat page, renders chat/chat-ui.tsx (embed variant)
   page.tsx, layout.tsx
 
 public/widget.js             embed script for third-party sites
@@ -43,13 +44,13 @@ migrations/                  *.sql, applied in order by db-setup.ts
 docs/                        gitignored — drop your source documents here
 ```
 
-`spark/` must not import from Next.js (`next/*`, `react`, etc.). It runs from CLI scripts and from route handlers — keep it pure TypeScript so it can be lifted into another project later.
+`rag/` must not import from Next.js (`next/*`, `react`, etc.). It runs from CLI scripts and from route handlers — keep it pure TypeScript so it can be lifted into another project later.
 
 ## Conventions
 
-- **Provider abstraction.** Model and embedding provider are referenced in exactly two files (`spark/chat.ts`, `spark/embed.ts`). Switching to Anthropic later is a one-line change in each. Don't sprinkle `openai(...)` calls elsewhere.
-- **DB queries live in `spark/queries.ts`** as named, exported helper functions. Don't write inline `sql\`...\`` at call sites — keep all SQL in one file so the schema is easy to grep and refactor. The migration runner in `scripts/db-setup.ts` is the one exception.
-- **Prompts live in `spark/prompts.ts`.** Don't inline system prompts in route handlers or `chat.ts`.
+- **Provider abstraction.** Model and embedding provider are referenced in exactly two files (`rag/chat.ts`, `rag/embed.ts`). Switching to Anthropic later is a one-line change in each. Don't sprinkle `openai(...)` calls elsewhere.
+- **DB queries live in `rag/queries.ts`** as named, exported helper functions. Don't write inline `sql\`...\`` at call sites — keep all SQL in one file so the schema is easy to grep and refactor. The migration runner in `scripts/db-setup.ts` is the one exception.
+- **Prompts live in `rag/prompts.ts`.** Don't inline system prompts in route handlers or `chat.ts`.
 - **No new dependencies without a clear reason.** Especially avoid: LangChain, LlamaIndex, Drizzle, Prisma, Pinecone client, Supabase client, NextAuth, iron-session.
 - **Route handlers run on the Node runtime,** not Edge — pg-style drivers and parsers want Node.
 - **CORS.** `/api/chat` must accept cross-origin POST + OPTIONS so the widget works from any host.
@@ -64,7 +65,7 @@ docs/                        gitignored — drop your source documents here
 
 ## Future upgrades (not v1 — wire when needed, do not pre-build)
 
-- **Reranker** — add Voyage Rerank 2.5 as a post-step in `spark/retrieve.ts` when retrieval misses become noticeable.
+- **Reranker** — add Voyage Rerank 2.5 as a post-step in `rag/retrieve.ts` when retrieval misses become noticeable.
 - **Hybrid search (BM25)** — add a `tsvector` column on `chunks.content` and merge with vector results via Reciprocal Rank Fusion when keyword queries fail.
 - **Contextual retrieval** — prepend a 50-token chunk-context (Anthropic's pattern) during ingest. Requires an extra LLM call per chunk; use prompt caching.
 - **Multi-tenant** — add a `tenants` table with public API keys, scope `documents` and `chat_sessions` by `tenant_id`, accept `data-key="..."` on the embed `<script>`. Single-tenant in v1.

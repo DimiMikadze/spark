@@ -1,4 +1,4 @@
-import { truncateDocumentsAndChunks } from '../spark/queries';
+import { truncateDocumentsAndChunks } from '../rag/queries';
 
 // Dev convenience: wipe all ingested data so you can re-run `pnpm ingest`
 // from scratch. Does not touch chat sessions or messages — clear those by

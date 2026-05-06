@@ -1,12 +1,12 @@
 # Spark — RAG Chatbot Build Plan
 
-A local-first RAG chatbot built on Next.js 16 + OpenAI + Neon Postgres (pgvector). Reusable RAG engine lives in `spark/`; `app/` is the test harness.
+A local-first RAG chatbot built on Next.js 16 + OpenAI + Neon Postgres (pgvector). Reusable RAG engine lives in `rag/`; `app/` is the test harness.
 
 ## Goals
 
 - Build fast, ship a working chat UI with retrieval grounding
 - $0 running cost (free tiers + existing OpenAI credits)
-- Keep RAG engine isolated in `spark/` so it can be reused in other apps
+- Keep RAG engine isolated in `rag/` so it can be reused in other apps
 - Deployable so the chat can be embedded as a widget on any third-party website
 - **Future direction (not v1):** multi-tenant — different customer sites, each with their own document corpus, identified by an API key on the embed script
 
@@ -31,7 +31,7 @@ Reranker / Voyage embeddings / contextual retrieval / Drizzle (if queries grow) 
 ## Folder layout
 
 ```
-spark/                       reusable RAG engine
+rag/                         reusable RAG engine
   parse.ts                   parseFile(path) → string, dispatches by extension
   chunk.ts                   tokenizer-aware chunker (~500 tok, 50 overlap)
   embed.ts                   wraps OpenAI embeddings via AI SDK
@@ -41,7 +41,7 @@ spark/                       reusable RAG engine
   types.ts                   shared types
 
 app/
-  api/chat/route.ts          POST handler, streams via spark/chat.ts (CORS-enabled)
+  api/chat/route.ts          POST handler, streams via rag/chat.ts (CORS-enabled)
   api/messages/route.ts      GET prior messages for current session
   chat/page.tsx              useChat() UI — internal admin/test view
   embed/page.tsx             stripped chat UI rendered inside the widget iframe
@@ -113,23 +113,23 @@ messages
 - [ ] Install deps: `pnpm add ai @ai-sdk/react @ai-sdk/openai @neondatabase/serverless unpdf mammoth zod`
 - [ ] Install dev deps: `pnpm add -D tsx @types/node`
 - [ ] Add scripts to `package.json`: `ingest`, `db:setup`, `db:reset`
-- [ ] Create empty folders: `spark/`, `scripts/`, `docs/`, `migrations/`
+- [ ] Create empty folders: `rag/`, `scripts/`, `docs/`, `migrations/`
 - [ ] Add `docs/` to `.gitignore`
 
 ### Phase 2 — Database (~15 min)
 
 - [ ] `migrations/0001_init.sql` — `CREATE EXTENSION vector;` + 4 tables + HNSW index on `chunks.embedding`
-- [ ] `spark/db.ts` — exports `sql` from `neon(process.env.DATABASE_URL!)` for tagged-template queries
+- [ ] `rag/db.ts` — exports `sql` from `neon(process.env.DATABASE_URL!)` for tagged-template queries
 - [ ] `scripts/db-setup.ts` — reads each `migrations/*.sql` file in order and executes; tracks applied files in a `_migrations` table so it's idempotent
 - [ ] Run: `pnpm db:setup`
 
 ### Phase 3 — Spark library (~45 min)
 
-- [ ] `spark/parse.ts` — extension dispatch: `.md`/`.txt` → fs, `.pdf` → unpdf, `.docx` → mammoth
-- [ ] `spark/chunk.ts` — split by paragraph then merge to ~500 tokens with 50 overlap. Use a simple tokenizer (`tiktoken` or just word-count approximation; keep it simple)
-- [ ] `spark/embed.ts` — `embedMany({ model: openai.embedding('text-embedding-3-large', { dimensions: 1536 }), values })`
-- [ ] `spark/retrieve.ts` — `retrieve(query: string, k = 5) → { content, source }[]` using cosine distance ordered ASC
-- [ ] `spark/chat.ts` — accepts `messages`, retrieves on the latest user message, returns `streamText({ model: openai('gpt-5.5'), system: <RAG prompt>, messages })`. The system prompt instructs the model to ground answers in provided context and say "I don't know" if context is insufficient
+- [ ] `rag/parse.ts` — extension dispatch: `.md`/`.txt` → fs, `.pdf` → unpdf, `.docx` → mammoth
+- [ ] `rag/chunk.ts` — split by paragraph then merge to ~500 tokens with 50 overlap. Use a simple tokenizer (`tiktoken` or just word-count approximation; keep it simple)
+- [ ] `rag/embed.ts` — `embedMany({ model: openai.embedding('text-embedding-3-large', { dimensions: 1536 }), values })`
+- [ ] `rag/retrieve.ts` — `retrieve(query: string, k = 5) → { content, source }[]` using cosine distance ordered ASC
+- [ ] `rag/chat.ts` — accepts `messages`, retrieves on the latest user message, returns `streamText({ model: openai('gpt-5.5'), system: <RAG prompt>, messages })`. The system prompt instructs the model to ground answers in provided context and say "I don't know" if context is insufficient
 
 ### Phase 4 — Ingest CLI (~15 min)
 
@@ -139,7 +139,7 @@ messages
 
 ### Phase 5 — Chat API + UI (~30 min)
 
-- [ ] `app/api/chat/route.ts` — read or create `session_id` cookie, call `spark/chat.ts`, return `result.toUIMessageStreamResponse()`. On `onFinish`, persist user + assistant messages to `messages` table. Add CORS headers (`Access-Control-Allow-Origin: *`, plus OPTIONS handler) so the widget can call it cross-origin
+- [ ] `app/api/chat/route.ts` — read or create `session_id` cookie, call `rag/chat.ts`, return `result.toUIMessageStreamResponse()`. On `onFinish`, persist user + assistant messages to `messages` table. Add CORS headers (`Access-Control-Allow-Origin: *`, plus OPTIONS handler) so the widget can call it cross-origin
 - [ ] `app/api/messages/route.ts` — `GET` returns prior messages for current session
 - [ ] `app/chat/page.tsx` — server component fetches prior messages, hydrates `useChat({ initialMessages })`. Tailwind for minimal styling; show retrieved-source citations under each assistant message
 - [ ] `app/page.tsx` — replace template with link to `/chat`
@@ -163,7 +163,7 @@ messages
 
 ## Open trade-offs (documented for later)
 
-- **Reranker not added.** When retrieval misses are noticeable, add Voyage Rerank 2.5 as a post-step in `spark/retrieve.ts`. Single HTTP call.
+- **Reranker not added.** When retrieval misses are noticeable, add Voyage Rerank 2.5 as a post-step in `rag/retrieve.ts`. Single HTTP call.
 - **Hybrid search (BM25) not added.** When semantic-only misses keyword queries, add a `tsvector` column and RRF merge.
 - **Contextual Retrieval not added.** When chunks lose meaning out of context, add a 50-token contextual prefix per chunk during ingest (Anthropic's pattern).
 - **Edge runtime not used.** Route handlers run on Node because pg drivers and parsers want Node. Fine for free-tier Vercel.
@@ -189,6 +189,6 @@ messages
 2. Re-running `pnpm ingest` is idempotent (skips files by content hash)
 3. `/chat` streams answers grounded in ingested content, cites source filenames
 4. Conversations persist across reloads via session cookie
-5. Switching to Anthropic later requires changes in only `spark/chat.ts` and `spark/embed.ts`
+5. Switching to Anthropic later requires changes in only `rag/chat.ts` and `rag/embed.ts`
 6. The deployed app exposes a `widget.js` that, when added as a `<script>` to any third-party HTML page, renders a working chat launcher
 7. `AGENTS.md` documents the architecture so a fresh agent (Claude or Cursor) can pick up later phases without re-reading this plan

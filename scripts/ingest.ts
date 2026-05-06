@@ -1,10 +1,10 @@
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { join, extname, relative } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { parseFile, SUPPORTED_EXTENSIONS } from '../spark/parse';
-import { chunk as chunkText } from '../spark/chunk';
-import { embedTexts } from '../spark/embed';
-import { isDocumentIngested, insertDocumentWithChunks } from '../spark/queries';
+import { parseFile, SUPPORTED_EXTENSIONS } from '../rag/parse';
+import { chunk as chunkText } from '../rag/chunk';
+import { embedTexts } from '../rag/embed';
+import { isDocumentIngested, insertDocumentWithChunks } from '../rag/queries';
 
 const DOCS_DIR = join(process.cwd(), 'docs');
 
@@ -62,7 +62,7 @@ async function ingestFile(path: string): Promise<'ingested' | 'skipped'> {
 
   // The doc UUID is generated here (not in Postgres) so the document INSERT
   // and chunk INSERTs share an id inside one transaction. See the comment in
-  // `spark/queries.ts → insertDocumentWithChunks`.
+  // `rag/queries.ts → insertDocumentWithChunks`.
   await insertDocumentWithChunks({
     documentId: randomUUID(),
     sourcePath: relative(process.cwd(), path),

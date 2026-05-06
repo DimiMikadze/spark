@@ -1,8 +1,8 @@
 import { cookies } from 'next/headers';
 import { randomUUID } from 'node:crypto';
 import type { UIMessage } from 'ai';
-import { chat } from '@/spark/chat';
-import { createChatSession, saveMessage } from '@/spark/queries';
+import { chat } from '@/rag/chat';
+import { createChatSession, saveMessage } from '@/rag/queries';
 
 // We need Node, not Edge: `unpdf` and `mammoth` (used during ingestion) and
 // the way streamText is wired want a Node runtime. Edge would also restrict

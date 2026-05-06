@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers';
 import type { UIMessage } from 'ai';
-import { getMessagesBySession } from '@/spark/queries';
+import { getMessagesBySession } from '@/rag/queries';
 import { ChatUI } from './chat-ui';
 
 // Force dynamic rendering: this page reads cookies and the messages table,

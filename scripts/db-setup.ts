@@ -1,6 +1,6 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { sql } from '../spark/db';
+import { sql } from '../rag/db';
 
 async function main() {
   await sql`
@@ -25,9 +25,10 @@ async function main() {
     console.log(`apply ${file}`);
 
     const statements = text
+      .replace(/--.*$/gm, '')
       .split(/;\s*(?:\n|$)/)
       .map((s) => s.trim())
-      .filter((s) => s.length > 0 && !s.startsWith('--'));
+      .filter((s) => s.length > 0);
 
     for (const stmt of statements) {
       await sql.query(stmt);

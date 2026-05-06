@@ -90,13 +90,14 @@ export async function chat({
           stopWhen: stepCountIs(8),
           maxOutputTokens: 600,
           providerOptions: PROVIDER_OPTIONS,
-          onFinish: ({ finishReason, usage }) => {
+          onFinish: ({ text, finishReason, usage }) => {
             const pending = state.pendingHandoff;
             console.info('[turn:end]', {
               agent: agent.name,
               finishReason,
               tokens: `in ${usage.inputTokens} (cached ${usage.cachedInputTokens ?? 0}) / out ${usage.outputTokens}`,
               handoff: pending ? `${agent.name} → ${pending.target} (${pending.reason})` : null,
+              text: text.length > 240 ? `${text.slice(0, 240)}…` : text,
             });
           },
           onError: ({ error }) => console.error('[turn:error]', error),

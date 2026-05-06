@@ -3,13 +3,12 @@ import { randomUUID } from 'node:crypto';
 import type { UIMessage } from 'ai';
 import { chat } from '@/agents/orchestrator';
 import { snapshotState } from '@/agents/state';
+import { SESSION_COOKIE } from '@/app/session';
 
 // We need Node, not Edge: `unpdf` and `mammoth` (used during ingestion) and
 // the way streamText is wired want a Node runtime. Edge would also restrict
 // `node:crypto` imports.
 export const runtime = 'nodejs';
-
-const SESSION_COOKIE = 'spark_session';
 
 // CORS: the embeddable widget will load `/embed` inside an iframe on a third-
 // party site. The iframe origin matches us, so the iframe itself is fine, but

@@ -13,6 +13,12 @@ import type { ConversationState } from '@/types';
 export const SPARK_GREETING =
   "Hi! I'm Spark, AI assistant for enumeral. Before we set up a call, I'd love to learn a bit about your business. What does your company do?";
 
+// Shown instead of SPARK_GREETING when the visitor's session cookie is
+// already set. We don't restore prior chat history, so the copy stays
+// open-ended rather than promising to "pick up where we left off".
+export const SPARK_RETURNING_GREETING =
+  'Welcome back! What can I help with today?';
+
 // Called by the orchestrator when the active agent is Greeter and a user
 // message has just arrived. No tokens spent — we just flip state and let
 // the orchestrator run the Qualifier on this same turn.

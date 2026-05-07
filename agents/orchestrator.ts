@@ -231,7 +231,7 @@ export async function chat({
             console.info('[turn:end]', {
               agent: agent.name,
               finishReason,
-              tokens: `in ${usage.inputTokens} (cached ${usage.cachedInputTokens ?? 0}) / out ${usage.outputTokens}`,
+              tokens: `in ${usage.inputTokens} (cached ${usage.inputTokenDetails.cacheReadTokens ?? 0}) / out ${usage.outputTokens}`,
               handoff: pending ? `${agent.name} → ${pending.target} (${pending.reason})` : null,
               text: text.length > 240 ? `${text.slice(0, 240)}…` : text,
             });

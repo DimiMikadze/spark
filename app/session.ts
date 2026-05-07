@@ -1,5 +1,5 @@
 import { cookies } from 'next/headers';
-import { sessionHasMessages } from '@/rag/queries';
+import { sessionHasMessages } from '@/lib/queries';
 
 // Cookie name is shared between the API route that sets it (after the first
 // POST to /api/chat) and the server-rendered chat pages that read it to

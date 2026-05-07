@@ -1,4 +1,4 @@
-import { sql } from './db';
+import { sql } from '../lib/db';
 import type { Format, RetrievedChunk } from './types';
 
 function vectorLiteral(values: number[]): string {
@@ -52,12 +52,6 @@ export async function truncateDocumentsAndChunks(): Promise<void> {
   await sql`TRUNCATE documents, chunks RESTART IDENTITY CASCADE`;
 }
 
-// Full wipe of app data. `_migrations` is intentionally preserved so the
-// schema stays in sync — re-running `pnpm db:setup` after this is a no-op.
-export async function truncateAll(): Promise<void> {
-  await sql`TRUNCATE documents, chunks, chat_sessions, messages RESTART IDENTITY CASCADE`;
-}
-
 export async function searchChunks(
   queryEmbedding: number[],
   k: number,
@@ -73,41 +67,4 @@ export async function searchChunks(
     ORDER BY c.embedding <=> ${literal}::vector
     LIMIT ${k}
   `) as RetrievedChunk[];
-}
-
-export async function createChatSession(sessionId: string): Promise<void> {
-  await sql`INSERT INTO chat_sessions (id) VALUES (${sessionId})`;
-}
-
-export type MessageRow = {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-};
-
-export async function sessionHasMessages(sessionId: string): Promise<boolean> {
-  const rows = (await sql`
-    SELECT 1 FROM messages WHERE session_id = ${sessionId} LIMIT 1
-  `) as { '?column?': number }[];
-  return rows.length > 0;
-}
-
-export async function getMessagesBySession(sessionId: string): Promise<MessageRow[]> {
-  return (await sql`
-    SELECT id, role, content
-    FROM messages
-    WHERE session_id = ${sessionId}
-    ORDER BY created_at ASC
-  `) as MessageRow[];
-}
-
-export async function saveMessage(
-  sessionId: string,
-  role: 'user' | 'assistant',
-  content: string,
-): Promise<void> {
-  await sql`
-    INSERT INTO messages (session_id, role, content)
-    VALUES (${sessionId}, ${role}, ${content})
-  `;
 }

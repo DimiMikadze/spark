@@ -10,7 +10,7 @@ import { checkAvailability, createEvent, deleteEvent, updateEvent } from './cale
 import { sendSummaryEmail } from './email';
 import { createHandoffToBookerTool } from './handoff';
 import { searchKnowledge } from './knowledge';
-import { createLead, findLead, updateLead } from './lead';
+import { createLead, findLead, updateLead } from './leads';
 
 export function createToolsForAgent(
   agent: SparkAgentName,

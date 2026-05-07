@@ -8,7 +8,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 # Spark — project rules
 
-Spark is enumeral's lead-qualification + booking assistant. Three explicit agents (Greeter, Qualifier, Booker) each have a small system prompt, share a tool-mocked backend, and hand off to each other via tool calls. A reusable RAG engine in `rag/` provides a `searchKnowledge` tool the agents can call when the user asks about enumeral.
+Spark is enumeral's lead-qualification + booking assistant. Three explicit agents (Greeter, Qualifier, Booker) each have a small system prompt, share a tool-backed backend, and hand off to each other via tool calls. A RAG engine in `rag/` provides a `searchKnowledge` tool the agents can call when the user asks about enumeral.
 
 ## Stack (locked — do not swap without discussion)
 
@@ -37,19 +37,22 @@ agents/                      multi-agent orchestrator — one folder per agent
   orchestrator.ts            per-turn entry: pick agent, run streamText, apply handoff
   state.ts                   in-memory Map<conversationId, ConversationState>
 
-tools/                       mocked side-effect surface — every tool is a stub
+tools/                       agent tool surface
   knowledge.ts               searchKnowledge — wraps rag/retrieve as a tool
-  lead.ts                    findLead, createLead, updateLead
-  calendar.ts                checkAvailability, createEvent, updateEvent, deleteEvent
-  email.ts                   sendSummaryEmail
+  leads.ts                   findLead, createLead, updateLead (real, DB-backed)
+  calendar.ts                checkAvailability, createEvent, updateEvent, deleteEvent (mocked)
+  email.ts                   sendSummaryEmail (mocked)
   handoff.ts                 handoffToBooker — sets state.pendingHandoff
   index.ts                   createToolsForAgent(name, state) — per-agent permissions
 
-rag/                         reusable RAG engine — pure functions, no Next.js imports
+rag/                         RAG engine
   parse.ts, chunk.ts, embed.ts, retrieve.ts
-  db.ts                      Neon SQL client (connection only)
-  queries.ts                 all DB query helpers — call sites import from here
+  queries.ts                 RAG-only DB query helpers (chunks/documents)
   types.ts                   RAG-only types (Format, RetrievedChunk)
+
+lib/                         shared app-level infra
+  db.ts                      Neon SQL client (connection only) — used by rag/ and lib/
+  queries.ts                 app DB query helpers (chat sessions, messages, leads, full-wipe)
 
 types.ts                     app-wide types (SparkAgentName, ConversationState, ...)
 
@@ -68,7 +71,7 @@ migrations/                  *.sql, applied in order by db-setup.ts
 docs/                        gitignored — drop your source documents here
 ```
 
-`rag/` must not import from Next.js, `agents/`, or top-level `types.ts` — keep it pure TypeScript so it can be lifted into another project later.
+`rag/` must not import from Next.js or `agents/` — RAG is engine code, not orchestration. The Neon SQL client lives in `lib/db.ts` and is shared between `rag/queries.ts` and `lib/queries.ts`.
 
 ## Conventions
 
@@ -77,10 +80,10 @@ docs/                        gitignored — drop your source documents here
 - **Bounded conversation history.** Every HTTP turn re-sends the full client-side history, so without bounds input cost grows quadratically over a conversation and the input eventually exceeds the model's context window. `agents/orchestrator.ts` applies two limits to `modelMessages` before every `streamText` call: a sliding window of the last ~20 user turns (`trimHistory`, cuts only at user-message boundaries to avoid orphaning tool-call/result pairs) and per-message compaction of tool-result payloads above ~2KB in prior turns (`compactToolResults`, replaces fat outputs with a stub). Both run inside the agent loop, so multi-agent handoffs and prior-turn history flow through the same pipeline. Current-turn tool results are never compacted — they're still in the in-flight reasoning chain.
 - **RAG only via tool.** Agents reach the knowledge base through the `searchKnowledge` tool. Never paste retrieved chunks into the system prompt — it kills prompt caching and pays for retrieval the user didn't ask for.
 - **Agent handoff is a tool call.** No regex over user text, no LLM router. The Qualifier emits `handoffToBooker(reason, email)`; the orchestrator applies it before the next turn.
-- **Mocked tools are dumb.** Every tool's `execute` does `console.log(input)` and returns `{ ok: true, ...input }`. Wiring real services later is a one-file change per tool. Don't grow per-conversation state inside tools.
+- **Tools are thin.** Each tool's `execute` logs its input, calls one query helper (or external service), and returns a small JSON shape. Don't grow per-conversation state inside tools — that's what `agents/state.ts` is for. Tools that aren't wired to a real backend yet still log + return `{ ok: true, ...input }` so the agent loop doesn't choke.
 - **Provider abstraction.** Model and embedding provider are referenced in exactly two files (`agents/orchestrator.ts`, `rag/embed.ts`). Switching to Anthropic later is a one-line change in each. Don't sprinkle `openai(...)` calls elsewhere.
-- **DB queries live in `rag/queries.ts`** as named, exported helper functions. Don't write inline `sql\`...\``at call sites — keep all SQL in one file so the schema is easy to grep and refactor. The migration runner in`scripts/db-setup.ts` is the one exception.
-- **One `types.ts` per layer.** `types.ts` at the repo root holds Spark app types. `rag/types.ts` holds RAG-only types. `rag/` cannot import the root file.
+- **DB queries live in `rag/queries.ts` and `lib/queries.ts`** as named, exported helper functions — RAG-specific queries in the former, everything else (chat sessions, messages, leads, full-wipe) in the latter. Don't write inline `sql\`...\`` at call sites. The migration runner in `scripts/db-setup.ts` is the one exception.
+- **One `types.ts` per layer.** `types.ts` at the repo root holds Spark app types. `rag/types.ts` holds RAG-only types.
 - **No new dependencies without a clear reason.** Especially avoid: LangChain, LlamaIndex, Drizzle, Prisma, Pinecone client, Supabase client, NextAuth, iron-session.
 - **Route handlers run on the Node runtime,** not Edge — pg-style drivers and parsers want Node.
 - **CORS.** `/api/chat` must accept cross-origin POST + OPTIONS so the widget works from any host.
@@ -91,7 +94,7 @@ docs/                        gitignored — drop your source documents here
 - `pnpm ingest` — walks `docs/`, ingests new files (idempotent by content hash)
 - `pnpm db:setup` — applies any new SQL files in `migrations/` (idempotent)
 - `pnpm db:reset` — truncates `documents` and `chunks` (dev only)
-- `pnpm db:wipe` — truncates `documents`, `chunks`, `chat_sessions`, `messages` (full blank-slate reset; keeps schema + `_migrations`)
+- `pnpm db:wipe` — truncates `documents`, `chunks`, `chat_sessions`, `messages`, `leads` (full blank-slate reset; keeps schema + `_migrations`)
 - `pnpm dev` — Next.js dev server
 
 ## Future upgrades (not v1 — wire when needed, do not pre-build)

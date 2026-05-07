@@ -1,6 +1,6 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { sql } from '../rag/db';
+import { sql } from '../lib/db';
 
 async function main() {
   await sql`

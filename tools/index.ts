@@ -4,10 +4,10 @@
 // leads but cannot touch the calendar; Booker can manage the calendar but
 // cannot create leads. Greeter never reaches the model so it has none.
 
-import type { ToolSet } from 'ai';
+import type { ToolSet, UIMessage } from 'ai';
 import type { ConversationState, SparkAgentName } from '@/types';
 import { checkAvailability, createEvent, deleteEvent, updateEvent } from './calendar';
-import { sendSummaryEmail } from './email';
+import { createSendSummaryEmailTool } from './email';
 import { createHandoffToBookerTool } from './handoff';
 import { searchKnowledge } from './knowledge';
 import { createLead, findLead, updateLead } from './leads';
@@ -15,6 +15,7 @@ import { createLead, findLead, updateLead } from './leads';
 export function createToolsForAgent(
   agent: SparkAgentName,
   state: ConversationState,
+  messages: UIMessage[],
 ): ToolSet | undefined {
   if (agent === 'qualifier') {
     return {
@@ -35,7 +36,7 @@ export function createToolsForAgent(
       createEvent,
       updateEvent,
       deleteEvent,
-      sendSummaryEmail,
+      sendSummaryEmail: createSendSummaryEmailTool(messages),
     };
   }
 

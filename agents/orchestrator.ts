@@ -26,6 +26,7 @@ type AgentContext = {
   state: ConversationState;
   conversationId: string;
   currentDate: string;
+  messages: UIMessage[];
 };
 const AGENTS: Record<Exclude<SparkAgentName, 'greeter'>, (ctx: AgentContext) => SparkAgentRuntime> = {
   qualifier: createQualifierAgent,
@@ -207,7 +208,7 @@ export async function chat({
       // handoffs (e.g. agent A → B → C) just work.
       while (true) {
         const activeAgent = state.activeAgent as keyof typeof AGENTS;
-        const agent = AGENTS[activeAgent]({ state, conversationId, currentDate });
+        const agent = AGENTS[activeAgent]({ state, conversationId, currentDate, messages });
 
         // Bound the history we send to the model on every iteration. Doing
         // this inside the loop (rather than once before it) also covers the

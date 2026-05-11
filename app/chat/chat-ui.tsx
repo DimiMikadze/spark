@@ -99,12 +99,23 @@ export function ChatUI({
     setInput('');
   }
 
-  // Reset clears the visible transcript back to the seeded greeting. The
-  // session cookie persists, so a returning visitor still sees the
-  // welcome-back copy after reset.
-  function onReset() {
-    setMessages(initialMessages);
+  // Reset does a full fresh start: the server clears the session cookie and
+  // drops the in-memory ConversationState (so the active agent goes back to
+  // Greeter). Without the server hop the user would keep talking to whichever
+  // agent they were last handed off to, even though the visible transcript
+  // looks clean.
+  async function onReset() {
     setInput('');
+    try {
+      const res = await fetch('/api/session/reset', { method: 'POST' });
+      const { messages: fresh } = (await res.json()) as { messages: UIMessage[] };
+      setMessages(fresh);
+    } catch {
+      // Network blip — fall back to a local visual reset so the button still
+      // does something. The server state will get reconciled on the next
+      // successful turn.
+      setMessages(initialMessages);
+    }
   }
 
   const containerClass = isEmbed
@@ -118,7 +129,7 @@ export function ChatUI({
           type='button'
           onClick={onReset}
           aria-label='Reset conversation'
-          className='rounded-full p-2 text-neutral-400 transition hover:bg-white/5 hover:text-neutral-100'
+          className='rounded-full p-2 text-neutral-400 transition hover:bg-white/5 hover:text-neutral-100 cursor-pointer'
         >
           <ResetIcon />
         </button>
@@ -172,7 +183,7 @@ export function ChatUI({
       </div>
 
       <form onSubmit={onSubmit} className='px-4 pb-4'>
-        <div className='flex items-center gap-2 rounded-full border border-white/8 bg-neutral-900 px-4 py-2.5 focus-within:border-white/20'>
+        <div className='flex items-center gap-2 rounded-full border border-white/8 bg-neutral-900 px-4 py-3 focus-within:border-white/20'>
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}

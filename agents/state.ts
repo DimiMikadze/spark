@@ -41,6 +41,14 @@ export function applyPendingHandoff(state: ConversationState): void {
   state.pendingHandoff = undefined;
 }
 
+// Drops a conversation's in-memory state. Used by the session reset endpoint
+// so a "start over" click also wipes the active agent — otherwise the next
+// turn would resume in Qualifier/Booker even though the visible transcript
+// looks fresh.
+export function deleteState(conversationId: string): void {
+  states.delete(conversationId);
+}
+
 export function snapshotState(conversationId: string): ConversationState | undefined {
   const state = states.get(conversationId);
   if (!state) return undefined;

@@ -48,7 +48,7 @@
         zIndex: '2147483647',
         display: 'flex',
         justifyContent: 'center',
-        background: isMobile ? '#000' : 'rgba(0,0,0,0.9)',
+        background: isMobile ? '#000' : 'rgba(0,0,0,0.6)',
         paddingTop: isMobile ? '0' : '80px',
       });
 
